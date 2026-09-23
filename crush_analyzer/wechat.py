@@ -18,7 +18,7 @@ import sys
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
-from .models import Message, parse_dt
+from .models import Message, clean_name, parse_dt
 
 
 class WeChatError(RuntimeError):
@@ -278,16 +278,16 @@ def _normalize_session_item(item: Any) -> str:
     if item is None:
         return ""
     if isinstance(item, str):
-        return item.strip()
+        return clean_name(item)
     for attr in ("name", "nickname", "remark", "nick_name", "NickName", "title", "who"):
         value = getattr(item, attr, None)
         if value:
-            return str(value).strip()
+            return clean_name(value)
     if isinstance(item, dict):
         for key in ("name", "nickname", "remark", "NickName", "title", "who"):
             if item.get(key):
-                return str(item[key]).strip()
-    return str(item).strip()
+                return clean_name(item[key])
+    return clean_name(item)
 
 
 def _normalize_message_item(item: Any, chat: str = "") -> Optional[Message]:
@@ -306,13 +306,13 @@ def _normalize_message_item(item: Any, chat: str = "") -> Optional[Message]:
         content = item.strip()
         if not content:
             return None
-        return Message(sender=chat or "对方", content=content, timestamp=None, is_self=False)
+        return Message(sender=clean_name(chat) or "对方", content=content, timestamp=None, is_self=False)
 
     # 常见 wxauto Message 对象
     for attr in ("sender", "Sender", "from_user", "fromUser", "nickname", "who"):
         value = getattr(item, attr, None)
         if value:
-            sender = str(value).strip()
+            sender = clean_name(value)
             break
     for attr in ("content", "Content", "text", "msg", "message"):
         value = getattr(item, attr, None)
@@ -340,7 +340,7 @@ def _normalize_message_item(item: Any, chat: str = "") -> Optional[Message]:
             raw[attr] = value
 
     if isinstance(item, dict):
-        sender = sender or str(item.get("sender") or item.get("from") or item.get("nickname") or "").strip()
+        sender = sender or clean_name(item.get("sender") or item.get("from") or item.get("nickname"))
         content = content or str(item.get("content") or item.get("msg") or item.get("text") or "").strip()
         timestamp = timestamp or item.get("time") or item.get("timestamp") or item.get("CreateTime")
         msg_id = msg_id or str(item.get("id") or item.get("msg_id") or "")
@@ -428,16 +428,17 @@ class WxautoBackend:
             name = self._db.get_nickname(username) if self._db else ""
         except Exception:
             name = ""
+        name = clean_name(name)
         if name and name != username:
-            return str(name)
+            return name
         try:
-            group_name = self._db.group_id_to_name(username) if self._db else ""
+            group_name = clean_name(self._db.group_id_to_name(username)) if self._db else ""
         except Exception:
             group_name = ""
-        return str(group_name or name or username)
+        return group_name or name or clean_name(username)
 
     def _resolve_db_username(self, chat: str) -> str:
-        chat = (chat or "").strip()
+        chat = clean_name(chat)
         if not self._db or not chat:
             return chat
         if chat in ("文件传输助手", "filehelper"):
@@ -457,7 +458,8 @@ class WxautoBackend:
         try:
             hits = self._db.search_contact(chat) or []
             for hit in hits:
-                if chat in (hit.get("nick_name"), hit.get("remark")):
+                names = (clean_name(hit.get("nick_name")), clean_name(hit.get("remark")))
+                if chat in names:
                     return str(hit.get("username") or chat)
         except Exception:
             pass
@@ -465,7 +467,7 @@ class WxautoBackend:
         try:
             for row in self._db.get_sessions(limit=300) or []:
                 username = str(row.get("username") or "")
-                if username and self._db_display_name(username) == chat:
+                if username and clean_name(self._db_display_name(username)) == chat:
                     return username
         except Exception:
             pass
@@ -474,7 +476,7 @@ class WxautoBackend:
     def _db_row_to_message(self, row: Dict[str, Any], chat: str, username: str = "") -> Message:
         sender_id = row.get("sender_id")
         self_wxid = str(self._db_self.get("username") or "")
-        sender_username = str(row.get("sender_username") or "")
+        sender_username = clean_name(row.get("sender_username"))
         # 当前微信数据库里：sender_id/sender_username 为 1 或 2 代表自己；
         # 群聊中其他成员是递增数字 ID，私聊中对方是对方的数字 ID。
         is_self = (
@@ -508,11 +510,11 @@ class WxautoBackend:
         if is_self:
             sender = "我"
         else:
-            sender_name = str(row.get("sender_username") or "").strip()
+            sender_name = clean_name(row.get("sender_username"))
             if is_group and sender_name not in ("", "1", "2"):
                 sender = sender_name
             else:
-                sender = chat or "对方"
+                sender = clean_name(chat) or "对方"
         raw = dict(row)
         if username:
             raw["_chat_username"] = username
@@ -680,6 +682,7 @@ class WxautoBackend:
 
     def _send_via_keyboard(self, chat: str, text: str) -> None:
         """不依赖 winsdk 的发送方式：聚焦微信，搜索联系人，粘贴并发送。"""
+        chat = clean_name(chat)
         import win32con  # type: ignore
         import win32gui  # type: ignore
 
@@ -783,7 +786,7 @@ class WxautoBackend:
                 rows = []
             for row in rows:
                 username = str(row.get("username") or "")
-                name = self._db_display_name(username) or username
+                name = clean_name(self._db_display_name(username) or username)
                 if name and name not in names:
                     names.append(name)
             return names
@@ -801,7 +804,7 @@ class WxautoBackend:
             raw = [raw]
         names: List[str] = []
         for item in raw:
-            name = _normalize_session_item(item)
+            name = clean_name(_normalize_session_item(item))
             if name and name not in names:
                 names.append(name)
         return names
@@ -865,10 +868,10 @@ class WxautoBackend:
         # 首选 Win32 键盘/剪贴板发送：不需要 winsdk，适合数据库读取模式。
         last_error: Optional[Exception] = None
         try:
-            search_name = chat
+            search_name = clean_name(chat)
             if self._db is not None:
                 username = self._resolve_db_username(chat)
-                search_name = self._db_display_name(username) or chat
+                search_name = clean_name(self._db_display_name(username)) or search_name
             self._send_via_keyboard(search_name, text)
             return
         except Exception as exc:  # noqa: BLE001

@@ -20,6 +20,33 @@ def format_dt(dt: Optional[datetime]) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+_INVISIBLE_NAME_CHARS = (
+    "\u200b",  # zero width space
+    "\u200c",  # zero width non-joiner
+    "\u200d",  # zero width joiner
+    "\u2060",  # word joiner
+    "\ufeff",  # BOM
+    "\ufffd",  # replacement character
+    "\u25a1",  # white square
+    "\u25a0",  # black square
+    "\u25af",  # white vertical rectangle
+)
+
+_NAME_WHITESPACE = " \t\r\n\u00a0\u3000"
+
+
+def clean_name(value: Any) -> str:
+    """清理昵称里的空格、不可见占位符和开头 @ / #。"""
+    text = str(value or "")
+    for ch in _INVISIBLE_NAME_CHARS:
+        text = text.replace(ch, "")
+    text = "".join(ch for ch in text if ch not in _NAME_WHITESPACE)
+    text = text.strip()
+    while text.startswith(("@", "#")):
+        text = text[1:].lstrip()
+    return text
+
+
 def parse_dt(value: Any) -> Optional[datetime]:
     """尽量把各种输入转换为 datetime。无法解析时返回 None。"""
     if value is None or value == "":
@@ -108,7 +135,7 @@ class Message:
                 raw = {}
         return cls(
             message_id=row["message_id"],
-            sender=row["sender"] or "",
+            sender=clean_name(row["sender"]),
             content=row["content"] or "",
             timestamp=parse_dt(row["timestamp"]),
             is_self=bool(row["is_self"]),
@@ -158,11 +185,11 @@ class ChatSession:
     def to_row(self) -> tuple:
         return (
             self.id,
-            self.name,
+            clean_name(self.name),
             self.platform,
             self.source,
-            self.self_sender,
-            self.other_sender,
+            clean_name(self.self_sender),
+            clean_name(self.other_sender),
             format_dt(self.created_at),
             format_dt(self.updated_at),
             __import__("json").dumps(self.meta, ensure_ascii=False),
@@ -180,11 +207,11 @@ class ChatSession:
                 meta = {}
         return cls(
             id=row["id"],
-            name=row["name"] or "未命名会话",
+            name=clean_name(row["name"]) or "未命名会话",
             platform=row["platform"] or "wechat",
             source=row["source"] or "",
-            self_sender=row["self_sender"] or "",
-            other_sender=row["other_sender"] or "",
+            self_sender=clean_name(row["self_sender"]),
+            other_sender=clean_name(row["other_sender"]),
             created_at=parse_dt(row["created_at"]) or datetime.now(),
             updated_at=parse_dt(row["updated_at"]) or datetime.now(),
             messages=list(messages or []),

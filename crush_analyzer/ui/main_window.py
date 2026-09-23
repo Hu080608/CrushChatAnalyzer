@@ -25,7 +25,7 @@ from ..config import AppConfig, config_path
 from ..deepseek import DeepSeekClient, DeepSeekError, UsageInfo
 from ..importers import ChatImportError, import_file
 from ..media_ai import enrich_media_messages
-from ..models import ChatSession, Message
+from ..models import ChatSession, Message, clean_name
 from ..sample_data import write_sample_chat
 from ..storage import Database
 from ..wechat import WeChatError, create_backend, wxauto_diagnostics, wxauto_status
@@ -951,7 +951,7 @@ class MainWindow(tk.Tk):
     def _apply_self_name(self, self_name: str) -> None:
         if not self.current_session:
             return
-        self_name = (self_name or "").strip()
+        self_name = clean_name(self_name)
         self.current_session.normalize_roles(self_name)
         self.db.save_session(self.current_session)
         self.chat_transcript.set_session(self.current_session)
@@ -1013,11 +1013,15 @@ class MainWindow(tk.Tk):
         self._refresh_reply_targets()
 
     def _wechat_chat_names(self) -> List[str]:
-        if hasattr(self, "wechat_chat_all") and self.wechat_chat_all:
-            return list(self.wechat_chat_all)
-        if not hasattr(self, "wechat_chat_list"):
-            return []
-        return [str(self.wechat_chat_list.get(i)) for i in range(self.wechat_chat_list.size())]
+        raw = list(self.wechat_chat_all) if hasattr(self, "wechat_chat_all") and self.wechat_chat_all else []
+        if not raw and hasattr(self, "wechat_chat_list"):
+            raw = [str(self.wechat_chat_list.get(i)) for i in range(self.wechat_chat_list.size())]
+        names: List[str] = []
+        for name in raw:
+            cleaned = clean_name(name)
+            if cleaned and cleaned not in names:
+                names.append(cleaned)
+        return names
 
     def _refresh_reply_targets(self) -> None:
         if not hasattr(self, "reply_target_combo"):
@@ -1032,7 +1036,7 @@ class MainWindow(tk.Tk):
         for name in all_names:
             if name and name not in values and (not keyword or keyword in name.lower()):
                 values.append(name)
-        current = self.reply_target_var.get().strip()
+        current = clean_name(self.reply_target_var.get())
         if current and current in all_names and current not in values:
             values.insert(0, current)
         self.reply_target_combo.configure(values=values)
@@ -1560,10 +1564,11 @@ class MainWindow(tk.Tk):
             return chat
 
         def done(sent_chat):
+            sent_clean = clean_name(sent_chat)
             if self.current_session and (
-                self.current_session.source == sent_chat
-                or self.current_session.other_sender == sent_chat
-                or self.current_session.name == sent_chat
+                clean_name(self.current_session.source) == sent_clean
+                or clean_name(self.current_session.other_sender) == sent_clean
+                or clean_name(self.current_session.name) == sent_clean
             ):
                 self.current_session.messages.append(
                     Message(sender=self.current_session.self_sender or "我", content=text, timestamp=None, is_self=True)
@@ -1858,10 +1863,13 @@ class MainWindow(tk.Tk):
             return
         keyword = self.wechat_search_var.get().strip().lower() if hasattr(self, "wechat_search_var") else ""
         selected = self._selected_wechat_chat()
-        names = [
-            name for name in getattr(self, "wechat_chat_all", [])
-            if not keyword or keyword in str(name).lower()
-        ]
+        names: List[str] = []
+        for raw_name in getattr(self, "wechat_chat_all", []):
+            name = clean_name(raw_name)
+            if not name or name in names:
+                continue
+            if not keyword or keyword in name.lower():
+                names.append(name)
         self.wechat_chat_list.delete(0, "end")
         selected_index = None
         for index, name in enumerate(names):
@@ -1877,18 +1885,18 @@ class MainWindow(tk.Tk):
         selection = self.wechat_chat_list.curselection()
         if not selection:
             return ""
-        return str(self.wechat_chat_list.get(selection[0])).strip()
+        return clean_name(self.wechat_chat_list.get(selection[0]))
 
     def _auto_reply_target(self) -> str:
-        reply_target = self.reply_target_var.get().strip() if hasattr(self, "reply_target_var") else ""
-        chat = reply_target or self._last_wechat_chat or self._selected_wechat_chat()
+        reply_target = clean_name(self.reply_target_var.get()) if hasattr(self, "reply_target_var") else ""
+        chat = reply_target or clean_name(self._last_wechat_chat) or self._selected_wechat_chat()
         if chat:
             return chat
         if self.current_session:
             # 优先使用联系人昵称；source 只适合“从微信导入”的会话
             if self.current_session.platform == "wechat" and self.current_session.source and not Path(self.current_session.source).exists():
-                return self.current_session.source
-            return self.current_session.other_sender or self.current_session.name
+                return clean_name(self.current_session.source)
+            return clean_name(self.current_session.other_sender or self.current_session.name)
         return ""
 
     def _set_auto_reply_contact(self) -> None:
@@ -1920,20 +1928,23 @@ class MainWindow(tk.Tk):
             if not messages:
                 messagebox.showinfo("没有消息", "没有读取到消息。请确认该会话已打开或 wxauto 版本兼容。", parent=self)
                 return
-            self_name = (self.app_config.wechat_self_name or self.var_wechat_self_name.get() or "").strip()
+            self_name = clean_name(self.app_config.wechat_self_name or self.var_wechat_self_name.get())
             if not self_name:
                 for marker in ("我", "自己", "本人", "Self", "self", "me", "Me"):
-                    if any(m.sender == marker for m in messages):
+                    if any(clean_name(m.sender) == marker for m in messages):
                         self_name = marker
                         break
             for msg in messages:
                 if self_name:
-                    msg.is_self = msg.sender == self_name
-            other = next((m.sender for m in messages if m.sender and m.sender != self_name), chat)
+                    msg.is_self = clean_name(msg.sender) == self_name
+            other = next(
+                (clean_name(m.sender) for m in messages if clean_name(m.sender) and clean_name(m.sender) != self_name),
+                clean_name(chat),
+            )
             session = ChatSession(
-                name=chat,
+                name=clean_name(chat),
                 platform="wechat",
-                source=chat,
+                source=clean_name(chat),
                 self_sender=self_name,
                 other_sender=other,
                 messages=messages,

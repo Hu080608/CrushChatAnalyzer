@@ -17,7 +17,7 @@ from pathlib import Path
 import re
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .models import ChatSession, ImportResult, Message, parse_dt
+from .models import ChatSession, ImportResult, Message, clean_name, parse_dt
 
 
 class ChatImportError(ValueError):
@@ -161,15 +161,15 @@ def _dedupe_messages(messages: Iterable[Message]) -> List[Message]:
 
 
 def _infer_self_sender(senders: Sequence[str], self_name: str = "") -> str:
-    self_name = (self_name or "").strip()
+    self_name = clean_name(self_name)
     if self_name:
         for sender in senders:
-            if sender.strip() == self_name:
-                return sender.strip()
+            if clean_name(sender) == self_name:
+                return clean_name(sender)
     for marker in ("我", "自己", "本人", "me", "myself", "self"):
         for sender in senders:
-            if sender.strip().lower() == marker:
-                return sender.strip()
+            if clean_name(sender).lower() == marker:
+                return clean_name(sender)
     # 只有一个发送者时，无法判断，但也不强行标记
     return ""
 
@@ -183,7 +183,7 @@ def _make_message(
     index: int = 0,
 ) -> Message:
     return Message(
-        sender=(sender or "未知").strip() or "未知",
+        sender=clean_name(sender) or "未知",
         content=_content_to_text(content).strip(),
         timestamp=parse_dt(timestamp),
         is_self=bool(is_self),
@@ -453,7 +453,7 @@ def import_csv(path: Path, self_name: str = "") -> Tuple[List[Message], List[str
         for col_index, value in enumerate(row):
             key = header[col_index] if col_index < len(header) else f"col_{col_index}"
             record[key] = value
-        sender = str(_get_any(record, SENDER_ALIASES, "") or "").strip()
+        sender = clean_name(_get_any(record, SENDER_ALIASES, ""))
         content = _content_to_text(_get_any(record, CONTENT_ALIASES, "")).strip()
         timestamp = _get_any(record, TIME_ALIASES, "")
         is_self_value = _get_any(record, IS_SELF_ALIASES, None)
@@ -579,7 +579,7 @@ def import_json(path: Path, self_name: str = "") -> Tuple[List[Message], List[st
                 merged.update(record[nested_key])
                 source = merged
                 break
-        sender = str(_get_any(source, SENDER_ALIASES, "") or "").strip()
+        sender = clean_name(_get_any(source, SENDER_ALIASES, ""))
         content = _content_to_text(_get_any(source, CONTENT_ALIASES, "")).strip()
         timestamp = _get_any(source, TIME_ALIASES, "")
         is_self_value = _get_any(source, IS_SELF_ALIASES, None)
@@ -627,11 +627,11 @@ def make_session(
         self_sender = next((m.sender for m in messages if m.is_self), "")
     other_sender = next((s for s in senders if s != self_sender), "")
     session = ChatSession(
-        name=name,
+        name=clean_name(name) or "导入的会话",
         platform="wechat",
         source=source,
-        self_sender=self_sender,
-        other_sender=other_sender,
+        self_sender=clean_name(self_sender),
+        other_sender=clean_name(other_sender),
         messages=list(messages),
     )
     session.normalize_roles(self_sender) if self_sender else None
