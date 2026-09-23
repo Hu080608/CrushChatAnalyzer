@@ -4,6 +4,7 @@
 - **制作者**：胡胜杰
 - **默认模型**：DeepSeek `deepseek-chat`
 - **仓库**：https://github.com/Hu080608/CrushChatAnalyzer
+- **下载 Releases**：https://github.com/Hu080608/CrushChatAnalyzer/releases
 - **许可证**：MIT
 
 一个用于导入 / 接入微信聊天记录、分析对方情绪与表达、辅助 AI 回复和自动回复的 Windows 桌面小工具。
