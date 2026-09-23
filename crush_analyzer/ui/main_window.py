@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import csv
+from datetime import datetime, timedelta
 import json
 import os
 from pathlib import Path
@@ -28,6 +29,7 @@ from ..media_ai import enrich_media_messages
 from ..models import ChatSession, Message, clean_name
 from ..sample_data import write_sample_chat
 from ..storage import Database
+from ..update import UpdateInfo, apply_update, check_for_update, download_update
 from ..wechat import WeChatError, create_backend, wxauto_diagnostics, wxauto_status
 from .dialogs import ImportDialog, TextDialog
 from .widgets import ChatTranscript, CheckMarkButton, MarkdownText, ScrollableFrame
@@ -63,6 +65,7 @@ class MainWindow(tk.Tk):
         self._busy_count = 0
         self._closed = False
         self._last_wechat_chat = ""
+        self._update_busy = False
 
         self.title(APP_TITLE)
         self.geometry("1100x720")
@@ -81,6 +84,7 @@ class MainWindow(tk.Tk):
         self._update_wechat_status()
         self._set_status("就绪。建议先导入一份聊天记录，再到设置中填写 DeepSeek API Key。")
         self.after(700, self._maybe_show_welcome)
+        self.after(2500, self._auto_check_update)
 
     # ==================================================================
     # 样式与布局
@@ -241,6 +245,7 @@ class MainWindow(tk.Tk):
         for text, command, primary in (
             ("导入聊天记录", self._import_chat, True),
             ("连接微信", self._connect_wechat, False),
+            ("检查更新", self._check_update_manual, False),
             ("使用说明", self._show_help, False),
             ("关于", self._show_about, False),
         ):
@@ -647,6 +652,7 @@ class MainWindow(tk.Tk):
         self.var_max_import_messages = tk.StringVar()
         self.var_auto_reply_greeting = tk.StringVar()
         self.var_auto_allow_emoji = tk.BooleanVar()
+        self.var_auto_update = tk.BooleanVar()
         self.var_price_hit = tk.StringVar()
         self.var_price_miss = tk.StringVar()
         self.var_price_output = tk.StringVar()
@@ -679,6 +685,26 @@ class MainWindow(tk.Tk):
             style="Hint.TLabel",
             justify="left",
         ).grid(row=6, column=1, sticky="w", pady=(4, 0))
+
+        update_frame = ttk.Labelframe(frame, text="程序更新", padding=10)
+        update_frame.pack(fill="x", pady=(0, 10), padx=4)
+        CheckMarkButton(
+            update_frame,
+            text="启动时自动检查更新（仅 exe 版支持自动替换）",
+            variable=self.var_auto_update,
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ttk.Button(
+            update_frame,
+            text="立即检查更新",
+            style="Ghost.TButton",
+            command=self._check_update_manual,
+        ).grid(row=1, column=0, sticky="w")
+        ttk.Label(
+            update_frame,
+            text="源码版请使用 git pull；exe 版会自动下载并替换为最新 release。",
+            style="Hint.TLabel",
+            justify="left",
+        ).grid(row=1, column=1, sticky="w", padx=(10, 0))
 
         ttk.Label(
             frame,
@@ -1416,6 +1442,107 @@ class MainWindow(tk.Tk):
         self._set_status("请在“设置 → 梗/游戏知识库”里填写内容，保存后 AI 分析和自动回复都会参考。")
 
     # ==================================================================
+    # 程序更新
+    # ==================================================================
+    def _check_update_manual(self) -> None:
+        self._start_update_check(manual=True)
+
+    def _auto_check_update(self) -> None:
+        if not self.app_config.auto_update_enabled:
+            return
+        if not getattr(sys, "frozen", False):
+            return
+        last = self.app_config.last_update_check
+        if last:
+            try:
+                if datetime.now() - datetime.fromisoformat(last) < timedelta(hours=20):
+                    return
+            except Exception:
+                pass
+        self._start_update_check(manual=False)
+
+    def _start_update_check(self, manual: bool = False) -> None:
+        if not getattr(sys, "frozen", False):
+            if manual:
+                messagebox.showinfo(
+                    "源码版更新",
+                    "源码版请使用 git pull 更新；自动替换只支持 exe 版。",
+                    parent=self,
+                )
+            return
+        if self._update_busy:
+            if manual:
+                messagebox.showinfo("正在检查更新", "上一次检查还没有结束，请稍后再试。", parent=self)
+            return
+        self._update_busy = True
+        self._set_status("正在检查 GitHub 最新版本…")
+
+        def work():
+            return check_for_update(__version__)
+
+        def done(info: Optional[UpdateInfo]):
+            self._update_busy = False
+            self.app_config.last_update_check = datetime.now().isoformat(timespec="seconds")
+            try:
+                self.app_config.save()
+            except Exception:
+                pass
+            if info is None:
+                self._set_status("当前已是最新版本。")
+                if manual:
+                    messagebox.showinfo("检查更新", f"当前已是最新版本 v{__version__}。", parent=self)
+                return
+            self._set_status(f"发现新版本 v{info.version}。")
+            notes = (info.notes or "").strip()
+            if len(notes) > 500:
+                notes = notes[:500] + "…"
+            message = (
+                f"发现新版本：v{info.version}\n"
+                f"当前版本：v{__version__}\n\n"
+                f"{notes}\n\n"
+                "是否下载并自动更新？"
+            )
+            if messagebox.askyesno("发现新版本", message, parent=self):
+                self._download_and_apply_update(info)
+
+        def fail(exc: Exception):
+            self._update_busy = False
+            self._set_status(f"检查更新失败：{exc}")
+            if manual:
+                messagebox.showerror("检查更新失败", str(exc), parent=self)
+
+        self._run_async(work, done, fail)
+
+    def _download_and_apply_update(self, info: UpdateInfo) -> None:
+        self._set_status(f"正在下载 v{info.version} 更新包…")
+
+        def work():
+            return download_update(info)
+
+        def done(path):
+            if not messagebox.askyesno(
+                "下载完成",
+                "更新包已下载完成。\n是否立即关闭本程序并自动替换为新版？",
+                parent=self,
+            ):
+                self._set_status(f"更新包已保存到：{path}")
+                return
+            try:
+                apply_update(path)
+            except Exception as exc:  # noqa: BLE001
+                messagebox.showerror("更新失败", f"无法启动自动更新：{exc}", parent=self)
+                return
+            self._set_status("正在重启并替换为新版…")
+            messagebox.showinfo("即将更新", "程序即将关闭并自动完成更新，请稍等几秒。", parent=self)
+            self.after(500, self.destroy)
+
+        def fail(exc: Exception):
+            self._set_status(f"下载更新失败：{exc}")
+            messagebox.showerror("下载更新失败", str(exc), parent=self)
+
+        self._run_async(work, done, fail)
+
+    # ==================================================================
     # 智能回复
     # ==================================================================
     def _generate_replies(self) -> None:
@@ -2089,6 +2216,7 @@ class MainWindow(tk.Tk):
         self.var_media_vision_model.set(cfg.media_vision_model or "")
         self.var_media_asr_model.set(cfg.media_asr_model or "whisper-1")
         self.var_media_max_items.set(str(cfg.media_max_items))
+        self.var_auto_update.set(bool(cfg.auto_update_enabled))
         self.persona_text.delete("1.0", "end")
         self.persona_text.insert("1.0", cfg.system_persona or "")
         self.knowledge_text.delete("1.0", "end")
@@ -2125,6 +2253,7 @@ class MainWindow(tk.Tk):
         cfg.media_vision_model = self.var_media_vision_model.get().strip()
         cfg.media_asr_model = self.var_media_asr_model.get().strip() or "whisper-1"
         cfg.media_max_items = self._safe_int(self.var_media_max_items.get(), 10, 0, 200)
+        cfg.auto_update_enabled = bool(self.var_auto_update.get())
         cfg.system_persona = self.persona_text.get("1.0", "end").strip()
         cfg.custom_knowledge = self.knowledge_text.get("1.0", "end").strip()
         cfg.analysis_focus = self.focus_var.get() if hasattr(self, "focus_var") else cfg.analysis_focus

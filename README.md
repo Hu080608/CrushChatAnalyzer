@@ -1,6 +1,6 @@
 # Crush Chat Analyzer · 聊天分析助手
 
-- **版本**：v1.1.10
+- **版本**：v1.1.11
 - **制作者**：胡胜杰
 - **默认模型**：DeepSeek `deepseek-chat`
 - **仓库**：https://github.com/Hu080608/CrushChatAnalyzer
@@ -34,6 +34,14 @@
 - 支持本地数据库读取模式：读取聊天记录、刷新会话、自动回复轮询不反复弹窗
 - 支持微信会话列表搜索
 - 支持读取图片 / 语音 / 表情包 / 视频 / 文件 / 链接 / 位置等消息类型
+
+### 自动更新
+
+- exe 版启动时自动检查 GitHub 最新 Release
+- 支持手动点击“检查更新”
+- 发现新版本后可自动下载并替换 exe
+- 源码版请使用 git pull
+- 本地配置和聊天记录不会被更新覆盖
 
 ### AI 分析
 
@@ -88,7 +96,7 @@
 下载 Releases 中的：
 
 ```text
-CrushChatAnalyzer_v1.1.10.exe
+CrushChatAnalyzer_v1.1.11.exe
 ```
 
 双击运行。不需要安装 Python，不需要额外配置运行环境。

@@ -76,6 +76,10 @@ class AppConfig:
     auto_reply_style: str = "自然、简短、像本人"
     auto_reply_allow_emoji: bool = True
 
+    # 程序更新
+    auto_update_enabled: bool = True
+    last_update_check: str = ""
+
     # 界面
     theme: str = "light"
     font_family: str = "Microsoft YaHei UI"
