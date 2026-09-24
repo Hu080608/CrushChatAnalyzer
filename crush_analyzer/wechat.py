@@ -12,10 +12,13 @@ from datetime import datetime
 import importlib
 import os
 from pathlib import Path
+import shutil
 import site
 import subprocess
 import sys
+import tempfile
 import time
+import uuid
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
 from .logs import get_logger
@@ -370,6 +373,7 @@ class WxautoBackend:
         self._wx: Any = None
         self._db: Any = None
         self._db_self: Dict[str, Any] = {}
+        self._db_workdir = ""
         self._version = ""
         self._backend_name = "wxauto"
 
@@ -396,15 +400,23 @@ class WxautoBackend:
         try:
             from wechatauto.db import WeChatDB  # type: ignore
 
-            db = WeChatDB()
+            # 每次连接使用独立临时目录，避免上一次连接/其他进程残留的
+            # contact_contact.db 等文件造成 WinError 5 拒绝访问。
+            base = Path(tempfile.gettempdir()) / "CrushChatAnalyzer_wxdb"
+            workdir = base / f"{os.getpid()}_{uuid.uuid4().hex[:8]}"
+            workdir.mkdir(parents=True, exist_ok=True)
+            db = WeChatDB(workdir=str(workdir))
             self._db_self = db.get_self_info() or {}
             # 触发一次读写，确认数据库可用。
             db.get_sessions(limit=1)
             db.get_messages(str(self._db_self.get("username") or ""), limit=1)
             self._db = db
+            self._db_workdir = str(workdir)
             self._backend_name = "wechatauto-db"
+            logger.info("微信数据库连接成功，workdir=%s", workdir)
             return True
-        except Exception:
+        except Exception as exc:
+            logger.exception("微信数据库连接失败: %s", exc)
             self._db = None
             self._db_self = {}
             return False
@@ -774,6 +786,12 @@ class WxautoBackend:
         self._wx = None
         self._db = None
         self._db_self = {}
+        if self._db_workdir:
+            try:
+                shutil.rmtree(self._db_workdir, ignore_errors=True)
+            except Exception:
+                pass
+            self._db_workdir = ""
 
     def _ensure(self) -> Any:
         if self._wx is None:

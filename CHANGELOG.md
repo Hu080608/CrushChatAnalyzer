@@ -1,5 +1,10 @@
 # 更新日志
 
+## v2.0.2
+
+- 修复微信数据库连接时 WinError 5：每次连接使用独立临时目录，避免 contact_contact.db 等文件被上一次连接或其他进程占用。
+- 断开微信时清理本次数据库临时目录。
+
 ## v2.0.1
 
 - 自动更新下载增加镜像回退：ghfast.top / ghproxy.net / gh-proxy.com。
