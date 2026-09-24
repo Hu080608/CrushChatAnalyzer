@@ -16,6 +16,7 @@ import sys
 import threading
 import traceback
 import tkinter as tk
+import webbrowser
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -1587,8 +1588,20 @@ class MainWindow(tk.Tk):
             self.after(500, self.destroy)
 
         def fail(exc: Exception):
+            self.logger.exception("下载更新失败: %s", exc)
             self._set_status(f"下载更新失败：{exc}")
-            messagebox.showerror("下载更新失败", str(exc), parent=self)
+            message = str(exc)
+            if info.release_url and info.release_url not in message:
+                message += f"\n\nRelease 页面：\n{info.release_url}"
+            if messagebox.askyesno(
+                "下载更新失败",
+                f"{message}\n\n是否打开 Release 页面手动下载？",
+                parent=self,
+            ):
+                try:
+                    webbrowser.open(info.release_url)
+                except Exception:
+                    pass
 
         self._run_async(work, done, fail)
 
