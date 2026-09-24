@@ -120,6 +120,7 @@ def build_analysis_messages(
         f"分析重点：{focus}\n"
         f"补充说明：{extra_instruction or '无'}\n"
         f"梗/游戏/网络用语知识：{extra_knowledge or '无'}\n\n"
+        f"联网搜索参考（可能不相关，请自行判断，不要硬套）：{web_context or '无'}\n"
         "以下是聊天记录：\n"
         f"```text\n{conversation}\n```\n\n"
         "请输出一份真正有用的分析报告，使用 Markdown，结构如下：\n\n"
@@ -191,6 +192,7 @@ def build_auto_reply_messages(
     style: str = "",
     allow_emoji: bool = True,
     extra_knowledge: str = "",
+    web_context: str = "",
     max_messages: int = 30,
     max_chars: int = 6000,
 ) -> List[Dict[str, str]]:

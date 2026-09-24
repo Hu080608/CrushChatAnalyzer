@@ -25,6 +25,7 @@ from ..auto_reply import AutoReplyEvent, AutoReplyService
 from ..config import AppConfig, config_path
 from ..deepseek import DeepSeekClient, DeepSeekError, UsageInfo
 from ..importers import ChatImportError, import_file
+from ..logs import get_logger, log_dir
 from ..media_ai import enrich_media_messages
 from ..models import ChatSession, Message, clean_name
 from ..sample_data import write_sample_chat
@@ -66,6 +67,8 @@ class MainWindow(tk.Tk):
         self._closed = False
         self._last_wechat_chat = ""
         self._update_busy = False
+        self.logger = get_logger("ui")
+        self.logger.info("MainWindow 开始初始化")
 
         self.title(APP_TITLE)
         self.geometry("1100x720")
@@ -480,6 +483,13 @@ class MainWindow(tk.Tk):
         self.reply_target_combo.pack(side="left", padx=(4, 6))
         ttk.Button(target_row, text="刷新目标", command=self._refresh_reply_targets).pack(side="left")
 
+        ttk.Label(
+            tab,
+            text="用法：搜索联系人输入关键词 → 下拉框只显示匹配项 → 按回车或点下拉框选择发送目标。",
+            style="Hint.TLabel",
+            justify="left",
+        ).pack(anchor="w", pady=(0, 4))
+
         knowledge_row = ttk.Frame(tab)
         knowledge_row.pack(fill="x", pady=(0, 6))
         ttk.Label(
@@ -656,6 +666,7 @@ class MainWindow(tk.Tk):
         self.var_max_import_messages = tk.StringVar()
         self.var_auto_reply_greeting = tk.StringVar()
         self.var_auto_allow_emoji = tk.BooleanVar()
+        self.var_web_search = tk.BooleanVar()
         self.var_auto_update = tk.BooleanVar()
         self.var_price_hit = tk.StringVar()
         self.var_price_miss = tk.StringVar()
@@ -709,6 +720,18 @@ class MainWindow(tk.Tk):
             style="Hint.TLabel",
             justify="left",
         ).grid(row=1, column=1, sticky="w", padx=(10, 0))
+        ttk.Button(
+            update_frame,
+            text="打开日志目录",
+            style="Ghost.TButton",
+            command=self._open_logs,
+        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(
+            update_frame,
+            text="遇到问题时请把 logs 目录里的 app.log 一起反馈。",
+            style="Hint.TLabel",
+            justify="left",
+        ).grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(6, 0))
 
         ttk.Label(
             frame,
@@ -838,10 +861,15 @@ class MainWindow(tk.Tk):
             text="允许使用微信表情代码：[旺柴][呲牙][OK][合十][尴尬]",
             variable=self.var_auto_allow_emoji,
         ).grid(row=5, column=1, sticky="w", pady=6)
+        CheckMarkButton(
+            auto_frame,
+            text="自动联网搜索梗/游戏（B站搜索，可能增加延迟）",
+            variable=self.var_web_search,
+        ).grid(row=6, column=1, sticky="w", pady=6)
         CheckMarkButton(auto_frame, text="默认进入演练模式（只生成不发送）", variable=self.var_auto_dry_run).grid(
-            row=6, column=1, sticky="w", pady=6
+            row=7, column=1, sticky="w", pady=6
         )
-        ttk.Label(auto_frame, text="跳过关键词用英文/中文逗号分隔。", style="Hint.TLabel").grid(row=7, column=1, sticky="w")
+        ttk.Label(auto_frame, text="跳过关键词用英文/中文逗号分隔。", style="Hint.TLabel").grid(row=8, column=1, sticky="w")
 
         action = ttk.Frame(frame)
         action.pack(fill="x", pady=(4, 20), padx=4)
@@ -923,6 +951,11 @@ class MainWindow(tk.Tk):
         self.chat_title_var.set(title)
         self_count = sum(1 for m in session.messages if m.is_self)
         other_count = len(session.messages) - self_count
+        self.logger.info(
+            "加载会话 %r：总=%s 我=%s 对方=%s self_sender=%r other_sender=%r",
+            session.name, len(session.messages), self_count, other_count,
+            session.self_sender, session.other_sender,
+        )
         timestamps = [m.timestamp for m in session.messages if m.timestamp]
         if timestamps:
             span = f"{min(timestamps):%Y-%m-%d} ~ {max(timestamps):%Y-%m-%d}"
@@ -1559,6 +1592,19 @@ class MainWindow(tk.Tk):
 
         self._run_async(work, done, fail)
 
+    def _open_logs(self) -> None:
+        path = log_dir()
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+            self._set_status(f"已打开日志目录：{path}")
+        except Exception as exc:  # noqa: BLE001
+            self.logger.exception("打开日志目录失败: %s", exc)
+            messagebox.showinfo("日志目录", f"日志目录：\n{path}", parent=self)
+
     # ==================================================================
     # 智能回复
     # ==================================================================
@@ -1616,16 +1662,33 @@ class MainWindow(tk.Tk):
             child.destroy()
         self.reply_room_var.set(f"当前会话：{self.current_session.name}" if self.current_session else "")
 
+    def _make_wrap_dynamic(self, widget: tk.Widget) -> None:
+        """让 Label 的 wraplength 跟随容器宽度，避免窗口放大后仍在旧位置换行。"""
+        def _sync(_event=None, target=widget):
+            try:
+                width = target.master.winfo_width() - 20
+                if width > 200:
+                    target.configure(wraplength=width)
+            except Exception:
+                pass
+
+        try:
+            widget.master.bind("<Configure>", _sync, add="+")
+            self.after(60, _sync)
+        except Exception:
+            pass
+
     def _render_reply_suggestions(self, read_room: str, replies: List[Dict[str, str]]) -> None:
         self._clear_reply_suggestions()
         if read_room:
-            ttk.Label(
+            read_room_label = ttk.Label(
                 self.reply_suggestions_frame,
                 text=f"读空气：{read_room}",
                 style="Hint.TLabel",
-                wraplength=760,
                 justify="left",
-            ).pack(anchor="w", padx=6, pady=(4, 8))
+            )
+            read_room_label.pack(anchor="w", padx=6, pady=(4, 8))
+            self._make_wrap_dynamic(read_room_label)
         if not replies:
             ttk.Label(self.reply_suggestions_frame, text="没有生成可用的建议，换一种说法再试。", style="Hint.TLabel").pack(
                 anchor="w", padx=6, pady=6
@@ -1644,9 +1707,9 @@ class MainWindow(tk.Tk):
             text_widget.pack(fill="x", anchor="w")
             reason = reply.get("reason") or ""
             if reason:
-                ttk.Label(card, text=f"为什么：{reason}", style="Hint.TLabel", wraplength=740, justify="left").pack(
-                    anchor="w", pady=(4, 2)
-                )
+                reason_label = ttk.Label(card, text=f"为什么：{reason}", style="Hint.TLabel", justify="left")
+                reason_label.pack(anchor="w", pady=(4, 2))
+                self._make_wrap_dynamic(reason_label)
             btns = ttk.Frame(card)
             btns.pack(fill="x", pady=(4, 0))
             ttk.Button(
@@ -1967,6 +2030,7 @@ class MainWindow(tk.Tk):
             self._refresh_wechat_sessions()
 
         def error(exc: Exception):
+            self.logger.exception("微信连接失败: %s", exc)
             self.wechat_connect_btn.configure(text="连接微信")
             self.wechat_status_var.set(str(exc))
             self._set_status("微信连接失败。")
@@ -1975,14 +2039,25 @@ class MainWindow(tk.Tk):
         self._run_async(work, done, error)
 
     def _disconnect_wechat(self) -> None:
+        self.logger.info("用户请求断开微信连接")
         try:
-            self.auto_service.stop()
+            if self.auto_service.running:
+                self.logger.info("断开微信前先停止自动回复")
+                self.auto_service.stop(wait=False)
             self.backend.disconnect()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            self.logger.exception("断开微信连接时发生异常: %s", exc)
         self.wechat_connect_btn.configure(text="连接微信")
+        self._last_wechat_chat = ""
+        self.wechat_chat_all = []
+        if hasattr(self, "auto_contact_var"):
+            self.auto_contact_var.set("未选择")
+        try:
+            self._refresh_wechat_chat_list_view()
+        except Exception:
+            pass
         self._update_wechat_status()
-        self._set_status("已断开微信连接（如果有）。")
+        self._set_status("已断开微信连接，自动回复也已停止。")
 
     def _refresh_wechat_sessions(self) -> None:
         if not self.backend.connected:
@@ -1998,9 +2073,19 @@ class MainWindow(tk.Tk):
         def done(names: List[str]):
             self.wechat_chat_all = list(names)
             self._refresh_wechat_chat_list_view()
+            self.logger.info("刷新微信会话成功，共 %s 个", len(names))
             self._set_status(f"已读取 {len(names)} 个微信会话，可输入关键词搜索。")
 
-        self._run_async(work, done, lambda exc: messagebox.showerror("读取失败", str(exc), parent=self))
+        def fail(exc: Exception):
+            self.logger.exception("刷新微信会话失败: %s", exc)
+            self._set_status(f"刷新微信会话失败：{exc}")
+            messagebox.showerror(
+                "读取微信会话失败",
+                f"{exc}\n\n可以尝试：点击“诊断后端”查看详情，或重新连接微信。",
+                parent=self,
+            )
+
+        self._run_async(work, done, fail)
 
     def _refresh_wechat_chat_list_view(self) -> None:
         if not hasattr(self, "wechat_chat_list"):
@@ -2223,6 +2308,7 @@ class MainWindow(tk.Tk):
         self.var_auto_skip.set(cfg.auto_reply_skip_keywords or "")
         self.var_auto_style.set(cfg.auto_reply_style or "自然、简短、像本人")
         self.var_auto_allow_emoji.set(bool(cfg.auto_reply_allow_emoji))
+        self.var_web_search.set(bool(cfg.web_search_enabled))
         self.var_price_hit.set(str(cfg.price_input_cache_hit))
         self.var_price_miss.set(str(cfg.price_input_cache_miss))
         self.var_price_output.set(str(cfg.price_output))
@@ -2260,6 +2346,7 @@ class MainWindow(tk.Tk):
         cfg.auto_reply_skip_keywords = self.var_auto_skip.get().strip()
         cfg.auto_reply_style = self.var_auto_style.get().strip() or "自然、简短、像本人"
         cfg.auto_reply_allow_emoji = bool(self.var_auto_allow_emoji.get())
+        cfg.web_search_enabled = bool(self.var_web_search.get())
         cfg.price_input_cache_hit = self._safe_float(self.var_price_hit.get(), 0.5, 0.0, 100000.0)
         cfg.price_input_cache_miss = self._safe_float(self.var_price_miss.get(), 2.0, 0.0, 100000.0)
         cfg.price_output = self._safe_float(self.var_price_output.get(), 8.0, 0.0, 100000.0)
@@ -2439,6 +2526,10 @@ class MainWindow(tk.Tk):
                 result = work()
             except Exception as exc:  # noqa: BLE001
                 traceback.print_exc()
+                try:
+                    self.logger.exception("异步任务执行失败: %s", exc)
+                except Exception:
+                    pass
                 self._events.put(("error", on_error, exc))
             else:
                 self._events.put(("success", on_success, result))

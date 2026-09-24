@@ -20,10 +20,14 @@ from typing import Any, Dict, Optional
 import urllib.error
 import urllib.request
 
+from .logs import get_logger
+from .net import urlopen
+
 GITHUB_REPO = "Hu080608/CrushChatAnalyzer"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases/latest"
 USER_AGENT = "CrushChatAnalyzer-Update"
+logger = get_logger("update")
 
 
 @dataclass
@@ -57,8 +61,11 @@ def fetch_latest_release(timeout: int = 15) -> Dict[str, Any]:
         },
         method="GET",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8", errors="replace") or "{}")
+    logger.info("检查 GitHub 最新 release: %s", LATEST_RELEASE_API)
+    with urlopen(request, timeout=timeout) as response:
+        data = json.loads(response.read().decode("utf-8", errors="replace") or "{}")
+    logger.info("最新 release: %s", data.get("tag_name"))
+    return data
 
 
 def pick_exe_asset(release: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -84,6 +91,7 @@ def check_for_update(current_version: str, timeout: int = 15) -> Optional[Update
         return None
     latest_version = tag.lstrip("vV")
     if not is_newer(latest_version, current_version):
+        logger.info("当前版本 %s 已是最新（最新 %s）", current_version, latest_version)
         return None
     asset = pick_exe_asset(release)
     if not asset or not asset.get("browser_download_url"):
@@ -109,7 +117,8 @@ def download_update(info: UpdateInfo, progress=None, timeout: int = 180) -> Path
         method="GET",
     )
     downloaded = 0
-    with urllib.request.urlopen(request, timeout=timeout) as response, dest.open("wb") as fh:
+    logger.info("开始下载更新: %s -> %s", info.download_url, dest)
+    with urlopen(request, timeout=timeout) as response, dest.open("wb") as fh:
         total = int(response.headers.get("Content-Length") or 0)
         while True:
             chunk = response.read(1024 * 256)
@@ -122,6 +131,7 @@ def download_update(info: UpdateInfo, progress=None, timeout: int = 180) -> Path
                     progress(downloaded, total)
                 except Exception:
                     pass
+    logger.info("更新下载完成: %s (%s bytes)", dest, downloaded)
     return dest
 
 

@@ -14,10 +14,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .config import AppConfig
 from .deepseek import DeepSeekClient, DeepSeekError
+from .logs import get_logger
 from .media_ai import enrich_media_messages
 from .models import ChatSession, Message
 from .storage import Database
 from .wechat import WeChatError, create_backend
+
+
+logger = get_logger("auto_reply")
 
 
 @dataclass
@@ -107,6 +111,10 @@ class AutoReplyService:
     # 事件
     # ------------------------------------------------------------------
     def _emit(self, kind: str, message: str, **data: Any) -> None:
+        if kind in ("error", "stopped", "sent", "generated", "incoming"):
+            logger.info("auto_reply event=%s message=%s", kind, message)
+        else:
+            logger.debug("auto_reply event=%s message=%s", kind, message)
         event = AutoReplyEvent(kind=kind, message=message, data=data)
         if self.callback:
             try:
@@ -134,10 +142,12 @@ class AutoReplyService:
         self._emit("status", f"自动回复已启动：{chat}")
 
     def stop(self, wait: bool = False) -> None:
+        was_running = self.running
         self._stop_event.set()
         if wait and self._thread and self._thread.is_alive():
             self._thread.join(timeout=3)
-        self._emit("stopped", "自动回复已停止。")
+        if was_running:
+            self._emit("stopped", "自动回复已停止。")
 
     # ------------------------------------------------------------------
     # 主循环

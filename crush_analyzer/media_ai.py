@@ -20,6 +20,7 @@ import urllib.request
 import uuid
 
 from .config import AppConfig
+from .net import urlopen
 from .models import Message
 
 
@@ -43,7 +44,7 @@ def _post_json(url: str, payload: Dict[str, Any], api_key: str, timeout: int = 1
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as resp:
+    with urlopen(request, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
 
 
@@ -86,7 +87,7 @@ def _post_multipart(
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as resp:
+    with urlopen(request, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
 
 

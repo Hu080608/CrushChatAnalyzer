@@ -10,6 +10,9 @@ import json
 import re
 import socket
 import ssl
+
+from .logs import get_logger
+from .net import ssl_context
 import time
 from typing import Any, Dict, List, Optional, Tuple
 import urllib.error
@@ -25,7 +28,10 @@ from .prompts import (
     build_summary_messages,
     parse_reply_suggestions,
 )
+from .web_search import build_web_context
 
+
+logger = get_logger("deepseek")
 
 WECHAT_EMOJI_CODES = ("[旺柴]", "[呲牙]", "[OK]", "[合十]", "[尴尬]")
 
@@ -208,7 +214,7 @@ class DeepSeekClient:
             headers=self._headers(),
             method="POST",
         )
-        context = ssl.create_default_context()
+        context = ssl_context()
         try:
             with urllib.request.urlopen(request, timeout=timeout, context=context) as resp:
                 status = int(getattr(resp, "status", 0) or resp.getcode() or 0)
@@ -269,6 +275,10 @@ class DeepSeekClient:
             "stream": False,
         }
         url = self.endpoint()
+        logger.info(
+            "请求模型=%s url=%s messages=%s temperature=%s max_tokens=%s",
+            payload["model"], url, len(messages), payload["temperature"], payload["max_tokens"],
+        )
         last_error: Optional[Exception] = None
         timeout = max(5, int(self.config.timeout or 90))
         for attempt in range(max(1, retries + 1)):
@@ -276,6 +286,7 @@ class DeepSeekClient:
                 resp = self._post_json(url, payload, timeout)
             except HttpTransportError as exc:
                 last_error = exc
+                logger.warning("网络请求失败 attempt=%s/%s: %s", attempt + 1, retries + 1, exc)
                 if attempt < retries and exc.retryable:
                     time.sleep(1.5 * (attempt + 1))
                     continue
@@ -286,6 +297,7 @@ class DeepSeekClient:
                 continue
             if resp.status_code >= 400:
                 detail = _extract_error_detail(resp)
+                logger.error("接口返回 HTTP %s: %s", resp.status_code, detail)
                 raise DeepSeekError(
                     detail or f"接口返回 HTTP {resp.status_code}",
                     status_code=resp.status_code,
@@ -308,6 +320,10 @@ class DeepSeekClient:
             self.last_usage = usage
             self.last_model = model_name
             self.last_usage_info = parse_usage(usage, self.config, model=model_name)
+            logger.info(
+                "模型返回 model=%s content_len=%s usage=%s",
+                model_name, len(content), usage,
+            )
             return ChatResponse(content=content, model=model_name, usage=usage)
         raise DeepSeekError(f"请求失败：{last_error}")
 
@@ -366,6 +382,15 @@ class DeepSeekClient:
         persona: str = "",
         style: str = "",
     ) -> str:
+        web_context = ""
+        if self.config.web_search_enabled and incoming is not None:
+            try:
+                web_context = build_web_context(
+                    incoming.content,
+                    limit=max(1, min(5, int(self.config.web_search_limit or 3))),
+                )
+            except Exception:
+                web_context = ""
         messages = build_auto_reply_messages(
             session,
             incoming=incoming,
@@ -373,6 +398,7 @@ class DeepSeekClient:
             style=style or self.config.auto_reply_style,
             allow_emoji=bool(self.config.auto_reply_allow_emoji),
             extra_knowledge=self.config.custom_knowledge,
+            web_context=web_context,
             max_messages=min(self.config.max_context_messages, 40),
             max_chars=min(self.config.max_context_chars, 8000),
         )

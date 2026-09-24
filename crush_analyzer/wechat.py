@@ -18,6 +18,7 @@ import sys
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from .logs import get_logger
 from .models import Message, clean_name, parse_dt
 
 
@@ -36,6 +37,8 @@ _LAST_WXAUTO_SCAN_AT: float = 0.0
 # 原版 wxauto 在部分新版 Python / 微信客户端上无法安装；
 # 这里兼容 wechatauto（PyPI 包名 wechatauto-replica，模块名 wechatauto），
 # 它的 WeChat / Chat API 与 wxauto 基本兼容。
+logger = get_logger("wechat")
+
 WXAUTO_MODULES = ("wxauto", "wechatauto")
 
 
@@ -477,13 +480,14 @@ class WxautoBackend:
         sender_id = row.get("sender_id")
         self_wxid = str(self._db_self.get("username") or "")
         sender_username = clean_name(row.get("sender_username"))
-        # 当前微信数据库里：sender_id/sender_username 为 1 或 2 代表自己；
-        # 群聊中其他成员是递增数字 ID，私聊中对方是对方的数字 ID。
-        is_self = (
-            str(sender_id) in ("1", "2")
-            or sender_username in ("1", "2")
-            or bool(self_wxid and sender_username == self_wxid)
-        )
+        # 优先看 sender_username：自己通常是 1/2，其他人是真实 wxid。
+        # sender_id 有时在不同微信版本里会复用 1/2，不能单独作为唯一依据。
+        if sender_username in ("1", "2") or (self_wxid and sender_username == self_wxid):
+            is_self = True
+        elif sender_username:
+            is_self = False
+        else:
+            is_self = str(sender_id) in ("1", "2")
         content = row.get("content") or row.get("summary") or ""
         mtype_name = str(row.get("type") or "")
         try:
@@ -789,6 +793,7 @@ class WxautoBackend:
                 name = clean_name(self._db_display_name(username) or username)
                 if name and name not in names:
                     names.append(name)
+            logger.info("数据库模式读取到 %s 个微信会话", len(names))
             return names
 
         wx = self._ensure_gui()
@@ -864,6 +869,7 @@ class WxautoBackend:
         text = (text or "").strip()
         if not text:
             raise WeChatError("不能发送空消息。")
+        logger.info("发送微信消息给 %r，长度=%s", clean_name(chat), len(text))
 
         # 首选 Win32 键盘/剪贴板发送：不需要 winsdk，适合数据库读取模式。
         last_error: Optional[Exception] = None

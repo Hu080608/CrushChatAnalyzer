@@ -76,6 +76,8 @@ def main() -> int:
         "psutil",
         "colorama",
         "cryptography",
+        "certifi",
+        "zstandard",
     ]
     collected = []
     for package in backend_packages:

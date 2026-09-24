@@ -122,7 +122,17 @@ def main() -> int:
 
     _set_windows_dpi_awareness()
 
+    try:
+        from crush_analyzer.logs import init_logging
+
+        logger = init_logging()
+        logger.info("程序启动，argv=%s", sys.argv)
+    except Exception:
+        logger = None
+
     if "--diagnose-wechat" in sys.argv:
+        if logger:
+            logger.info("进入微信诊断模式")
         return _diagnose_wechat()
 
     from crush_analyzer.ui.main_window import run_app

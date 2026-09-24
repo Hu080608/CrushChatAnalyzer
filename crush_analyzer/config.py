@@ -75,6 +75,8 @@ class AppConfig:
     auto_reply_greeting: str = ""
     auto_reply_style: str = "自然、简短、像本人"
     auto_reply_allow_emoji: bool = True
+    web_search_enabled: bool = True
+    web_search_limit: int = 3
 
     # 程序更新
     auto_update_enabled: bool = True
