@@ -31,7 +31,7 @@ from ..media_ai import enrich_media_messages
 from ..models import ChatSession, Message, clean_name
 from ..sample_data import write_sample_chat
 from ..storage import Database
-from ..update import UpdateInfo, apply_update, check_for_update, download_update
+from ..update import UpdateInfo, apply_update, check_for_update, download_update, update_dir
 from ..wechat import WeChatError, create_backend, wxauto_diagnostics, wxauto_status
 from .dialogs import ImportDialog, TextDialog
 from .widgets import ChatTranscript, CheckMarkButton, MarkdownText, ScrollableFrame
@@ -739,6 +739,18 @@ class MainWindow(tk.Tk):
             style="Hint.TLabel",
             justify="left",
         ).grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(6, 0))
+        ttk.Button(
+            update_frame,
+            text="打开更新目录",
+            style="Ghost.TButton",
+            command=self._open_update_dir,
+        ).grid(row=3, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(
+            update_frame,
+            text="下载的更新 exe 会保存在 updates 目录。",
+            style="Hint.TLabel",
+            justify="left",
+        ).grid(row=3, column=1, sticky="w", padx=(10, 0), pady=(6, 0))
 
         ttk.Label(
             frame,
@@ -1486,6 +1498,18 @@ class MainWindow(tk.Tk):
         )
         messagebox.showinfo("关于 Crush Chat Analyzer", message, parent=self)
 
+    def _open_update_dir(self) -> None:
+        path = update_dir()
+        try:
+            if os.name == "nt":
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+            self._set_status(f"已打开更新目录：{path}")
+        except Exception as exc:  # noqa: BLE001
+            self.logger.exception("打开更新目录失败: %s", exc)
+            messagebox.showinfo("更新目录", "更新目录：" + chr(10) + str(path), parent=self)
+
     def _open_knowledge_settings(self) -> None:
         self.notebook.select(4)
         try:
@@ -1579,7 +1603,7 @@ class MainWindow(tk.Tk):
         def done(path):
             if not messagebox.askyesno(
                 "下载完成",
-                "更新包已下载完成。\n是否立即关闭本程序并自动替换为新版？",
+                f"更新包已下载到：{path}" + chr(10) * 2 + "是否立即关闭本程序并自动替换为新版？",
                 parent=self,
             ):
                 self._set_status(f"更新包已保存到：{path}")

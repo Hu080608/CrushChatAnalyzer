@@ -1,6 +1,6 @@
 # Crush Chat Analyzer · 聊天分析助手
 
-- **版本**：v2.1.0
+- **版本**：v2.1.1
 - **制作者**：胡胜杰
 - **默认模型**：DeepSeek `deepseek-chat`
 - **仓库**：https://github.com/Hu080608/CrushChatAnalyzer
@@ -47,6 +47,8 @@
 - exe 版启动时自动检查 GitHub 最新 Release
 - 支持手动点击“检查更新”
 - 发现新版本后可自动下载并替换 exe
+- 更新包保存在 `%APPDATA%/CrushChatAnalyzer/updates`
+- 设置页可打开更新目录
 - 源码版请使用 git pull
 - 本地配置和聊天记录不会被更新覆盖
 
@@ -111,7 +113,7 @@
 下载 Releases 中的：
 
 ```text
-CrushChatAnalyzer_v2.1.0.exe
+CrushChatAnalyzer_v2.1.1.exe
 ```
 
 双击运行。不需要安装 Python，不需要额外配置运行环境。

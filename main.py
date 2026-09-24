@@ -130,6 +130,20 @@ def main() -> int:
     except Exception:
         logger = None
 
+    if "--apply-update" in sys.argv:
+        try:
+            index = sys.argv.index("--apply-update")
+            args = sys.argv[index + 1:index + 4]
+            if len(args) < 3:
+                print("用法: --apply-update <target_exe> <new_exe> <old_pid>")
+                return 2
+            from crush_analyzer.update import apply_update_worker
+
+            return int(apply_update_worker(args[0], args[1], args[2]))
+        except Exception as exc:  # noqa: BLE001
+            print(f"应用更新失败：{type(exc).__name__}: {exc}")
+            return 1
+
     if "--diagnose-wechat" in sys.argv:
         if logger:
             logger.info("进入微信诊断模式")
