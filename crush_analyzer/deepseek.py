@@ -406,7 +406,7 @@ class DeepSeekClient:
             max_messages=min(self.config.max_context_messages, 40),
             max_chars=min(self.config.max_context_chars, 8000),
         )
-        text = self.chat(messages, temperature=0.8, max_tokens=220)
+        text = self.chat(messages, temperature=0.8, max_tokens=max(320, min(600, int(self.config.max_tokens or 320))))
         return _clean_single_reply(text)
 
     def summarize(self, session: ChatSession) -> str:

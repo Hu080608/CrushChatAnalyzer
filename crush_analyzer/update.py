@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -220,15 +221,31 @@ def apply_update_worker(target_exe: str, new_exe: str, old_pid: str | int) -> in
 
     last_error: Optional[Exception] = None
     for attempt in range(1, 91):
+        temp_target = target.parent / (target.name + ".update_tmp")
         try:
             if not new_path.exists():
                 raise RuntimeError(f"更新文件不存在：{new_path}")
-            os.replace(new_path, target)
-            logger.info("更新替换成功：%s -> %s", new_path, target)
+            # 先复制到目标目录，再 os.replace。
+            # 这样即使下载目录和目标 exe 不在同一个磁盘，也不会报 WinError 17。
+            try:
+                temp_target.unlink()
+            except Exception:
+                pass
+            shutil.copyfile(new_path, temp_target)
+            os.replace(temp_target, target)
+            logger.info("更新替换成功：%s -> %s（经 %s）", new_path, target, temp_target)
             subprocess.Popen([str(target)], close_fds=True, cwd=str(target.parent))
+            try:
+                new_path.unlink()
+            except Exception:
+                pass
             return 0
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+            try:
+                temp_target.unlink()
+            except Exception:
+                pass
             if attempt == 1 or attempt % 10 == 0:
                 logger.warning("替换更新文件失败 attempt=%s: %s", attempt, exc)
             time.sleep(1.0)
