@@ -466,7 +466,11 @@ class MainWindow(tk.Tk):
         target_row.pack(fill="x", pady=(0, 6))
         ttk.Label(target_row, text="搜索联系人：").pack(side="left")
         self.reply_target_search_var = tk.StringVar()
-        ttk.Entry(target_row, textvariable=self.reply_target_search_var, width=16).pack(side="left", padx=(4, 10))
+        self.reply_target_search_entry = ttk.Entry(
+            target_row, textvariable=self.reply_target_search_var, width=16
+        )
+        self.reply_target_search_entry.pack(side="left", padx=(4, 10))
+        self.reply_target_search_entry.bind("<Return>", self._on_reply_target_search_enter)
         self.reply_target_search_var.trace_add("write", lambda *_a: self._refresh_reply_targets())
         ttk.Label(target_row, text="发送到微信：").pack(side="left")
         self.reply_target_var = tk.StringVar()
@@ -1062,10 +1066,13 @@ class MainWindow(tk.Tk):
         for name in all_names:
             if name and name not in values and (not keyword or keyword in name.lower()):
                 values.append(name)
-        current = clean_name(self.reply_target_var.get())
-        if current and current in all_names and current not in values:
-            values.insert(0, current)
         self.reply_target_combo.configure(values=values)
+        current = clean_name(self.reply_target_var.get())
+        if keyword:
+            # 搜索时只显示匹配项，并自动选中第一条匹配。
+            if current not in values:
+                self.reply_target_var.set(values[0] if values else "")
+            return
         if current in values:
             return
         session = self.current_session
@@ -1075,10 +1082,20 @@ class MainWindow(tk.Tk):
             session.other_sender if session else "",
             session.name if session else "",
         ):
+            candidate = clean_name(candidate)
             if candidate and candidate in values:
                 self.reply_target_var.set(candidate)
                 return
         self.reply_target_var.set(values[0] if values else "")
+
+    def _on_reply_target_search_enter(self, _event=None):
+        keyword = self.reply_target_search_var.get().strip().lower()
+        if not keyword:
+            return
+        matches = [name for name in self._wechat_chat_names() if keyword in name.lower()]
+        if matches:
+            self.reply_target_var.set(matches[0])
+        return "break"
 
     def _on_wechat_chat_select(self, _event=None) -> None:
         chat = self._selected_wechat_chat()

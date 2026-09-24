@@ -1,6 +1,6 @@
 # Crush Chat Analyzer · 聊天分析助手
 
-- **版本**：v1.1.11
+- **版本**：v1.1.12
 - **制作者**：胡胜杰
 - **默认模型**：DeepSeek `deepseek-chat`
 - **仓库**：https://github.com/Hu080608/CrushChatAnalyzer
@@ -96,7 +96,7 @@
 下载 Releases 中的：
 
 ```text
-CrushChatAnalyzer_v1.1.11.exe
+CrushChatAnalyzer_v1.1.12.exe
 ```
 
 双击运行。不需要安装 Python，不需要额外配置运行环境。
@@ -244,6 +244,28 @@ CrushChatAnalyzer/
 ```
 
 ---
+
+## 版本号规则
+
+本项目遵循语义化版本：
+
+| 变更类型 | 版本号怎么改 | 示例 |
+| --- | --- | --- |
+| 不兼容变更 | 主版本 +1，次版本和修订号归零 | 1.4.2 → 2.0.0 |
+| 向后兼容的新功能 | 次版本 +1，修订号归零 | 1.4.2 → 1.5.0 |
+| 向后兼容的问题修复 | 修订号 +1 | 1.4.2 → 1.4.3 |
+| 仅文档 / 注释 / 构建调整 | 可修订号 +1，也可不变 | 1.4.2+20240924 |
+| 预发布 | 加 `-alpha.1` / `-beta.1` / `-rc.1` | 1.5.0-alpha.1 |
+| 预发布转正式 | 去掉预发布后缀 | 1.5.0-rc.2 → 1.5.0 |
+
+打包命令：
+
+```bash
+python build_exe.py                 # 默认 patch +1
+python build_exe.py --bump minor    # 新功能
+python build_exe.py --bump major    # 不兼容变更
+python build_exe.py --no-bump       # 不自动改版本
+```
 
 ## 打包成 exe
 

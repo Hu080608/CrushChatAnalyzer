@@ -1,8 +1,10 @@
 """PyInstaller 打包脚本。
 
 用法：
-    python build_exe.py            # 自动 patch 版本 +1，然后打包
-    python build_exe.py --no-bump  # 不自动迭代版本，直接打包
+    python build_exe.py                 # 默认 patch +1（问题修复）
+    python build_exe.py --bump minor    # 新增功能：minor +1，patch 归零
+    python build_exe.py --bump major    # 不兼容变更：major +1，minor / patch 归零
+    python build_exe.py --no-bump       # 不自动迭代版本，直接打包
 
 生成文件：
     dist/CrushChatAnalyzer_v<version>.exe
@@ -17,17 +19,32 @@ import subprocess
 import sys
 from pathlib import Path
 
-from crush_analyzer.versioning import bump_patch, get_version
+from crush_analyzer.versioning import bump_major, bump_minor, bump_patch, get_version
 
 
 def main() -> int:
     root = Path(__file__).resolve().parent
-    if "--no-bump" in sys.argv:
+    args = sys.argv[1:]
+    bump_type = "patch"
+    if "--no-bump" in args:
         version = get_version()
         print(f"使用当前版本：v{version}")
     else:
-        version = bump_patch()
-        print(f"版本已自动迭代：v{version}")
+        if "--bump" in args:
+            index = args.index("--bump")
+            if index + 1 < len(args):
+                bump_type = args[index + 1].strip().lower()
+            else:
+                print("--bump 需要指定 major / minor / patch")
+                return 2
+        elif any(arg.startswith("--bump=") for arg in args):
+            bump_type = next(arg.split("=", 1)[1] for arg in args if arg.startswith("--bump=")).strip().lower()
+        bumpers = {"major": bump_major, "minor": bump_minor, "patch": bump_patch}
+        if bump_type not in bumpers:
+            print("不支持的版本类型：", bump_type, "可选：major / minor / patch")
+            return 2
+        version = bumpers[bump_type]()
+        print(f"版本已自动迭代（{bump_type}）：v{version}")
 
     name = f"CrushChatAnalyzer_v{version}"
     cmd = [
