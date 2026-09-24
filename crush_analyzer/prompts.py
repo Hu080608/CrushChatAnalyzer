@@ -33,7 +33,8 @@ ANALYSIS_SYSTEM = (
 
 REPLY_SYSTEM = (
     "你是一位中文聊天回复助手。你要根据聊天上下文，生成用户可以立刻发送的回复。"
-    "回复要像真实的人，而不是客服、鸡汤或情感导师。\n\n"
+    "回复要像真实的人，而不是客服、鸡汤或情感导师。"
+    "可以参考 AI 分析结论，但不要机械照搬，以最新聊天消息为准。\n\n"
     + SAFETY_RULES
     + "\n6. 不连发、不质问、不油腻、不卖惨；对方冷淡时，允许建议“先不回复”。"
 )
@@ -41,7 +42,8 @@ REPLY_SYSTEM = (
 
 AUTO_REPLY_SYSTEM = (
     "你正在代替用户进行微信自动回复。你只能输出一条可以直接发送的中文消息，"
-    "不要输出解释、前缀、引号或 Markdown。语气要像用户本人，简短、自然、承接上一句。\n\n"
+    "不要输出解释、前缀、引号或 Markdown。语气要像用户本人，简短、自然、承接上一句。"
+    "可以参考 AI 分析结论，但不要机械照搬；优先接住对方最新消息，具体情况具体分析。\n\n"
     + SAFETY_RULES
     + "\n不要 @ 对方，不要 @ 所有人，直接像日常聊天一样回复。"
     + "\n如果对方发来的是转账、验证码、密码、链接、文件、语音/视频通话等敏感或非文本内容，"
@@ -156,6 +158,7 @@ def build_reply_suggestions_messages(
     max_messages: int = 60,
     max_chars: int = 10000,
     extra_knowledge: str = "",
+    analysis_context: str = "",
 ) -> List[Dict[str, str]]:
     conversation = format_conversation(session, max_messages=max_messages, max_chars=max_chars)
     count = max(1, min(int(count or 3), 5))
@@ -163,7 +166,8 @@ def build_reply_suggestions_messages(
         f"对话对象：{session.other_sender or session.name}\n"
         f"我的昵称：{session.self_sender or '未指定'}\n"
         f"我想要的效果：{instruction or '自然接住对方的话，让聊天舒服地继续下去'}\n"
-        f"梗/游戏/网络用语知识：{extra_knowledge or '无'}\n\n"
+        f"梗/游戏/网络用语知识：{extra_knowledge or '无'}\n"
+        f"AI 分析结论（仅供参考，不要照搬，以最新消息为准）：{analysis_context or '无'}\n\n"
         "以下是最近的聊天记录：\n"
         f"```text\n{conversation}\n```\n\n"
         f"请生成 {count} 条可以直接发送的中文回复。要求：\n"
@@ -193,6 +197,7 @@ def build_auto_reply_messages(
     allow_emoji: bool = True,
     extra_knowledge: str = "",
     web_context: str = "",
+    analysis_context: str = "",
     max_messages: int = 30,
     max_chars: int = 6000,
 ) -> List[Dict[str, str]]:
@@ -215,6 +220,7 @@ def build_auto_reply_messages(
         f"{style_text}"
         f"{emoji_text}"
         f"梗/游戏/网络用语知识：{extra_knowledge or '无'}\n"
+        f"AI 分析结论（仅供参考，不要照搬，以最新消息为准）：{analysis_context or '无'}\n"
         "最近聊天记录：\n"
         f"```text\n{conversation}\n```\n"
         f"{incoming_text}\n"

@@ -27,7 +27,7 @@ class FakeBackend:
 
 
 class FakeClient:
-    def auto_reply(self, session, incoming=None, persona="", style=""):
+    def auto_reply(self, session, incoming=None, persona="", style="", analysis=""):
         return "好呀，周末一起？"
 
 

@@ -363,6 +363,7 @@ class DeepSeekClient:
         session: ChatSession,
         instruction: str = "",
         count: int = 3,
+        analysis: str = "",
     ):
         messages = build_reply_suggestions_messages(
             session,
@@ -371,6 +372,7 @@ class DeepSeekClient:
             max_messages=min(self.config.max_context_messages, 80),
             max_chars=min(self.config.max_context_chars, 12000),
             extra_knowledge=self.config.custom_knowledge,
+            analysis_context=analysis,
         )
         raw = self.chat(messages, temperature=0.85)
         return parse_reply_suggestions(raw)
@@ -381,6 +383,7 @@ class DeepSeekClient:
         incoming: Optional[Message] = None,
         persona: str = "",
         style: str = "",
+        analysis: str = "",
     ) -> str:
         web_context = ""
         if self.config.web_search_enabled and incoming is not None:
@@ -399,6 +402,7 @@ class DeepSeekClient:
             allow_emoji=bool(self.config.auto_reply_allow_emoji),
             extra_knowledge=self.config.custom_knowledge,
             web_context=web_context,
+            analysis_context=analysis,
             max_messages=min(self.config.max_context_messages, 40),
             max_chars=min(self.config.max_context_chars, 8000),
         )

@@ -255,11 +255,27 @@ class AutoReplyService:
         )
         if session.self_sender:
             latest.is_self = latest.sender == session.self_sender
+        analysis_context = ""
+        if self.db is not None and self.session_id:
+            try:
+                record = (
+                    self.db.get_latest_analysis(self.session_id, "deepseek")
+                    or self.db.get_latest_analysis(self.session_id, "local")
+                )
+                if record is not None:
+                    analysis_context = (record.content or "").strip()
+            except Exception:
+                analysis_context = ""
+        if analysis_context:
+            self._emit("status", "已参考最近一次 AI 分析结论。")
+        else:
+            self._emit("status", "未找到 AI 分析结论，仅根据聊天记录回复；建议先做 AI 分析。")
         reply = client.auto_reply(
             session,
             incoming=latest,
             persona=self.config.system_persona,
             style=self.config.auto_reply_style,
+            analysis=analysis_context,
         )
         reply = (reply or "").strip()
         if not reply:

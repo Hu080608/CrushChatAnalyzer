@@ -489,6 +489,12 @@ class MainWindow(tk.Tk):
             text="用法：搜索联系人输入关键词 → 下拉框只显示匹配项 → 按回车或点下拉框选择发送目标。",
             style="Hint.TLabel",
             justify="left",
+        ).pack(anchor="w", pady=(0, 2))
+        ttk.Label(
+            tab,
+            text="建议先在 AI 分析页生成报告；智能回复会参考分析结论，但以最新聊天消息为准。",
+            style="Hint.TLabel",
+            justify="left",
         ).pack(anchor="w", pady=(0, 4))
 
         knowledge_row = ttk.Frame(tab)
@@ -613,7 +619,7 @@ class MainWindow(tk.Tk):
         knowledge_row.pack(fill="x", pady=(0, 4))
         ttk.Label(
             knowledge_row,
-            text="自动回复会参考“设置 → 梗/游戏知识库”。",
+            text="自动回复会参考最近一次 AI 分析结论和“梗/游戏知识库”。",
             style="Hint.TLabel",
         ).pack(side="left")
         ttk.Button(
@@ -1637,6 +1643,21 @@ class MainWindow(tk.Tk):
                 self.notebook.select(4)
             return
 
+        analysis_record = (
+            self.db.get_latest_analysis(session.id, "deepseek")
+            or self.db.get_latest_analysis(session.id, "local")
+        )
+        analysis_context = (analysis_record.content or "").strip() if analysis_record else ""
+        if not analysis_context:
+            if messagebox.askyesno(
+                "建议先做 AI 分析",
+                "当前会话还没有 AI 分析报告。\n\n"
+                "先让 AI 分析对方最近的情绪和态度，再生成回复会更准确。\n"
+                "是否现在去 AI 分析页生成报告？",
+                parent=self,
+            ):
+                self.notebook.select(1)
+                return
         instruction = self.reply_instruction_var.get().strip()
         count = int(self.reply_count_var.get() or 3)
         self._clear_reply_suggestions()
@@ -1646,7 +1667,12 @@ class MainWindow(tk.Tk):
 
         def work():
             client = DeepSeekClient(self.app_config)
-            read_room, replies = client.suggest_replies(session, instruction=instruction, count=count)
+            read_room, replies = client.suggest_replies(
+                session,
+                instruction=instruction,
+                count=count,
+                analysis=analysis_context,
+            )
             return read_room, replies, client.last_usage_info
 
         def done(result):
