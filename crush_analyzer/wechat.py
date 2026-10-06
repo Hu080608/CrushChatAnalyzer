@@ -696,6 +696,28 @@ class WxautoBackend:
         win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
         win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
 
+    def _send_via_uia(self, chat: str, text: str) -> bool:
+        """优先使用 wechatauto 的 UIA 驱动打开会话并发送，跨布局更稳定。"""
+        try:
+            from wechatauto.uia_driver import WeChatUIA  # type: ignore
+        except Exception as exc:
+            logger.info("UIA 驱动不可用，降级键盘发送: %s", exc)
+            return False
+        try:
+            uia = WeChatUIA(timeout=6.0, search_timeout=2.0)
+            if not uia.ensure_window():
+                logger.info("UIA 无法连接微信窗口，降级键盘发送")
+                return False
+            logger.info("使用 UIA 打开会话并发送：%r", chat)
+            if uia.send_text_to(text, chat):
+                return True
+            logger.warning("UIA send_text_to 返回失败，尝试 open_chat + send_text")
+            if uia.open_chat(chat):
+                return bool(uia.send_text(text))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("UIA 发送失败，降级键盘发送: %s", exc)
+        return False
+
     def _send_via_keyboard(self, chat: str, text: str) -> None:
         """不依赖 winsdk 的发送方式：聚焦微信，搜索联系人，粘贴并发送。"""
         chat = clean_name(chat)
@@ -912,11 +934,18 @@ class WxautoBackend:
 
         # 首选 Win32 键盘/剪贴板发送：不需要 winsdk，适合数据库读取模式。
         last_error: Optional[Exception] = None
+        search_name = clean_name(chat)
+        if self._db is not None:
+            username = self._resolve_db_username(chat)
+            search_name = clean_name(self._db_display_name(username)) or search_name
+        # 优先 UIA：能精确校验当前会话名，避免不同电脑布局差异把昵称/消息发错窗口。
         try:
-            search_name = clean_name(chat)
-            if self._db is not None:
-                username = self._resolve_db_username(chat)
-                search_name = clean_name(self._db_display_name(username)) or search_name
+            if self._send_via_uia(search_name, text):
+                logger.info("UIA 发送完成：%r", search_name)
+                return
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("UIA 发送异常，降级键盘发送: %s", exc)
+        try:
             self._send_via_keyboard(search_name, text)
             if self._verify_sent(search_name, text, timeout=6.0):
                 return

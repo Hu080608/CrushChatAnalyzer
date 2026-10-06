@@ -133,9 +133,26 @@ def update_dir() -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
 
+def cleanup_old_updates(keep_name: str = "") -> None:
+    """清理 updates 目录里旧的更新 exe，避免越积越多。"""
+    try:
+        directory = update_dir()
+        for path in directory.glob("CrushChatAnalyzer_v*.exe"):
+            if path.name == keep_name:
+                continue
+            try:
+                path.unlink()
+                logger.info("清理旧更新包: %s", path)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 
 def download_update(info: UpdateInfo, progress=None, timeout: int = 180) -> Path:
     """下载更新到用户可见的 updates 目录，失败时自动切换镜像并重试。"""
+    cleanup_old_updates(info.asset_name)
     dest = update_dir() / info.asset_name
     part = dest.with_suffix(dest.suffix + ".part")
     last_error: Optional[Exception] = None
@@ -249,6 +266,15 @@ def apply_update_worker(target_exe: str, new_exe: str, old_pid: str | int) -> in
             if attempt == 1 or attempt % 10 == 0:
                 logger.warning("替换更新文件失败 attempt=%s: %s", attempt, exc)
             time.sleep(1.0)
+
+    # 如果旧 exe 所在目录不可写，至少直接启动新版本，避免用户完全无法更新。
+    try:
+        if new_path.exists():
+            logger.warning("无法替换旧版本，改为直接启动新版本：%s", new_path)
+            subprocess.Popen([str(new_path)], close_fds=True, cwd=str(new_path.parent))
+            return 0
+    except Exception as start_exc:
+        logger.error("直接启动新版本也失败: %s", start_exc)
 
     detail = f"自动更新失败：{last_error}\n文件未替换。\n新版本文件：{new_path}\n旧版本文件：{target}"
     logger.error(detail)
