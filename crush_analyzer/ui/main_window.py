@@ -2221,16 +2221,28 @@ class MainWindow(tk.Tk):
                 messagebox.showinfo("没有消息", "没有读取到消息。请确认该会话已打开或 wxauto 版本兼容。", parent=self)
                 return
             self_name = clean_name(self.app_config.wechat_self_name or self.var_wechat_self_name.get())
-            if not self_name:
+            # 数据库模式已经能正确标记自己消息，优先沿用数据库结果，避免用户昵称与消息发送者不一致时全部被判成对方。
+            db_self = next(
+                (clean_name(m.sender) for m in messages if m.is_self and clean_name(m.sender)),
+                "",
+            )
+            if db_self:
+                self_name = db_self
+            elif not self_name:
                 for marker in ("我", "自己", "本人", "Self", "self", "me", "Me"):
                     if any(clean_name(m.sender) == marker for m in messages):
                         self_name = marker
                         break
-            for msg in messages:
-                if self_name:
+            matched = bool(self_name) and any(clean_name(m.sender) == self_name for m in messages)
+            if matched:
+                for msg in messages:
                     msg.is_self = clean_name(msg.sender) == self_name
             other = next(
-                (clean_name(m.sender) for m in messages if clean_name(m.sender) and clean_name(m.sender) != self_name),
+                (
+                    clean_name(m.sender)
+                    for m in messages
+                    if clean_name(m.sender) and not m.is_self and clean_name(m.sender) != self_name
+                ),
                 clean_name(chat),
             )
             session = ChatSession(

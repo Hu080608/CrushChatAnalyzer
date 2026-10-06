@@ -727,9 +727,9 @@ class WxautoBackend:
         self._keypress(win32con.VK_DELETE)
         self._set_clipboard_text(chat)
         self._ctrl_keypress(ord("V"))
-        time.sleep(0.85)
+        time.sleep(1.20)
         self._keypress(win32con.VK_RETURN)
-        time.sleep(0.85)
+        time.sleep(1.00)
 
         # 点击聊天输入区域，确保焦点在输入框而不是侧栏/搜索框。
         try:
@@ -748,9 +748,9 @@ class WxautoBackend:
         # 粘贴消息并发送。
         self._set_clipboard_text(text)
         self._ctrl_keypress(ord("V"))
-        time.sleep(0.25)
+        time.sleep(0.30)
         self._keypress(win32con.VK_RETURN)
-        time.sleep(0.25)
+        time.sleep(0.35)
 
     def connect(self) -> str:
         status = wxauto_status(force=True)
@@ -883,6 +883,27 @@ class WxautoBackend:
             messages = messages[-limit:]
         return messages
 
+    def _verify_sent(self, chat: str, text: str, timeout: float = 5.0) -> bool:
+        """通过本地数据库确认消息是否真的出现在目标会话里。"""
+        if self._db is None:
+            return True
+        username = self._resolve_db_username(chat)
+        needle = (text or "").strip()
+        if not username or not needle:
+            return True
+        deadline = time.time() + max(1.0, float(timeout))
+        while time.time() < deadline:
+            try:
+                rows = self._db.get_messages(username, limit=6)
+                for row in rows:
+                    msg = self._db_row_to_message(row, chat, username)
+                    if msg.is_self and needle in (msg.content or ""):
+                        return True
+            except Exception:
+                pass
+            time.sleep(0.4)
+        return False
+
     def send_message(self, chat: str, text: str) -> None:
         text = (text or "").strip()
         if not text:
@@ -897,7 +918,13 @@ class WxautoBackend:
                 username = self._resolve_db_username(chat)
                 search_name = clean_name(self._db_display_name(username)) or search_name
             self._send_via_keyboard(search_name, text)
-            return
+            if self._verify_sent(search_name, text, timeout=6.0):
+                return
+            logger.warning("第一次发送后数据库未确认，准备重试一次：%r", search_name)
+            self._send_via_keyboard(search_name, text)
+            if self._verify_sent(search_name, text, timeout=8.0):
+                return
+            raise WeChatError("消息发送后未能确认已到达目标会话，请检查微信窗口或日志。")
         except Exception as exc:  # noqa: BLE001
             last_error = exc
 
